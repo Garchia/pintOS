@@ -17,7 +17,10 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
-#include "devices/timer.h"
+/* Paso de argumentos */
+#include "threads/malloc.h"
+#include "userprog/syscall.h"
+/* Paso de argumentos */
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -32,6 +35,15 @@ process_execute (const char *file_name)
   char *fn_copy;
   tid_t tid;
 
+  /* Paso de argumentos */
+  char *save;
+  char *fn;
+  
+  struct thread *t;
+  
+  tid = TID_ERROR;
+  /* Paso de argumentos */
+
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
   fn_copy = palloc_get_page (0);
@@ -39,10 +51,27 @@ process_execute (const char *file_name)
     return TID_ERROR;
   strlcpy (fn_copy, file_name, PGSIZE);
 
+  /* Paso de argumentos */
+  fn = malloc (strlen (file_name) + 1);
+  if (!fn){
+    free (fn);
+    if (tid == TID_ERROR)
+      palloc_free_page (fn_copy);
+  }
+  memcpy (fn, file_name, strlen (file_name) + 1);
+  file_name = strtok_r (fn, " ", &save);
+  /* Paso de argumentos */
+
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
-  if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+  //tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  /* My Implementation */
+  tid = thread_create (fn, PRI_DEFAULT, start_process, fn_copy);
+  if (tid == TID_ERROR){
+    free (fn);
+    if (tid == TID_ERROR)
+      palloc_free_page (fn_copy);
+  }
+
   return tid;
 }
 
@@ -55,27 +84,31 @@ start_process (void *file_name_)
   struct intr_frame if_;
   bool success;
 
-  /* My Implementation */
+  /* Paso de Argumentos */
   char *token, *save_ptr;
   void *start;
   int argc, i;
-  int *argv_off; /* Maximum of 2 arguments */
+  int *argv_off; /* Maximo  argumentos */
   size_t file_name_len;
   struct thread *t;
-  /* == My Implementation */
+  /* Paso de Argumentos */
 
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
-  
-  /* My Implementation */
+  success = load (file_name, &if_.eip, &if_.esp);
+
+  /* If load failed, quit. */
+  /*palloc_free_page (file_name);
+  if (!success) 
+    thread_exit ();*/
+
+  /* Paso de Argumentos */
   t = thread_current ();
   argc = 0;
   argv_off = malloc (32 * sizeof (int));
-  if (!argv_off)
-    goto exit;
   file_name_len = strlen (file_name);
   argv_off[0] = 0;
   for (
@@ -88,16 +121,13 @@ start_process (void *file_name_)
             ++save_ptr;
           argv_off[++argc] = save_ptr - file_name;
         }
-  /* == My Implementation */
-  
+  /* Paso de Argumentos */
   success = load (file_name, &if_.eip, &if_.esp);
-  
-  /* My Implementation */
-  /* Setting up stack */
+
+  /* Paso de Argumentos */
+  /* Arreglando el Stack */
   if (success)
     {
-      t->self = filesys_open (file_name);
-      file_deny_write (t->self);
       if_.esp -= file_name_len + 1;
       start = if_.esp;
       memcpy (if_.esp, file_name, file_name_len + 1);
@@ -117,32 +147,14 @@ start_process (void *file_name_)
       *(int *)(if_.esp) = argc;
       if_.esp -= 4;
       *(int *)(if_.esp) = 0; /* Fake return address */
-      
-      sema_up (&t->wait);
-      intr_disable ();
-      thread_block ();
-      intr_enable ();
     }
-  else
-    {
-      free (argv_off);
-exit:
-      t->ret_status = -1;
-      sema_up (&t->wait);
-      intr_disable ();
-      thread_block ();
-      intr_enable ();
-      thread_exit ();
-    }
-  
   free (argv_off);
-  /* == My Implementation */
+  /* Paso de argumentos */
   
-  /* If load failed, quit. */
+  /* Si no se puede cargar, salimos */
   palloc_free_page (file_name);
-  /* Old Implementation 
-  if (!success)   
-    thread_exit (); */
+
+
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -166,6 +178,7 @@ exit:
 int
 process_wait (tid_t child_tid UNUSED) 
 {
+  timer_sleep (200) ;
   return -1;
 }
 
